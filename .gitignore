@@ -1,0 +1,9 @@
+venv/
+__pycache__/
+*.pyc
+
+readiness_graph.png
+
+*.pdf
+
+.env
