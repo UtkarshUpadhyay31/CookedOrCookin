@@ -33,10 +33,9 @@ Unlike traditional interview preparation tools, CookedOrCookin not only measures
 # 🎥 Demo
 
 <p align="center">
-  <img src="screenshots/demo.mp4" width="900">
+  <img src="screenshots/demo.gif" width="800">
 </p>
-
-> Replace `demo.gif` with your actual screen recording GIF for maximum impact.
+> Replace `demo.mp4` with your actual screen recording GIF for maximum impact.
 
 ---
 
