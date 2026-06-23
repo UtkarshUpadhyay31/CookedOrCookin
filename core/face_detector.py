@@ -20,3 +20,12 @@ class FaceDetector:
         _, faces = self.detector.detect(frame)
 
         return faces
+
+    def get_face_count(self, frame):
+
+        faces = self.detect(frame)
+
+        if faces is None:
+            return 0
+
+        return len(faces)

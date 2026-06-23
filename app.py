@@ -83,6 +83,20 @@ cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
 prev_time = time.time()
 session_start = time.time()
 
+# ==========================
+# Integrity Tracking
+# ==========================
+
+face_missing_start = None
+
+total_frames = 0
+visible_face_frames = 0
+
+multiple_face_events = 0
+multiple_face_active = False
+
+session_auto_ended = False
+
 
 # =====================================
 # Main Loop
@@ -102,6 +116,75 @@ while True:
     # =====================================
 
     faces = face_detector.detect(frame)
+
+    face_count = 0
+
+    if faces is not None:
+        face_count = len(faces)
+
+    # ==========================
+    # Presence Tracking
+    # ==========================
+
+    total_frames += 1
+
+    if face_count == 1:
+        visible_face_frames += 1
+
+    # ==========================
+    # Multiple Face Detection
+    # ==========================
+
+    if face_count > 1:
+
+        if not multiple_face_active:
+            multiple_face_events += 1
+            multiple_face_active = True
+
+        cv2.putText(
+            frame,
+            "MULTIPLE FACES DETECTED",
+            (250, 80),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            1,
+            (0, 0, 255),
+            3
+        )
+
+    else:
+        multiple_face_active = False
+
+    # ==========================
+    # No Face Detection
+    # ==========================
+
+    if face_count == 0:
+
+        if face_missing_start is None:
+            face_missing_start = time.time()
+
+        cv2.putText(
+            frame,
+            "NO FACE DETECTED",
+            (320, 130),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            1,
+            (0, 0, 255),
+            3
+        )
+
+        if time.time() - face_missing_start > 10:
+
+            session_auto_ended = True
+
+            print("Session Auto Ended")
+
+            break
+
+    else:
+
+        face_missing_start = None
+
 
     if faces is not None:
 
@@ -123,7 +206,10 @@ while True:
 
     results = landmark_detector.detect(frame)
 
-    if results.multi_face_landmarks:
+    if (
+        results.multi_face_landmarks
+        and face_count == 1
+    ):
 
         for face_landmarks in results.multi_face_landmarks:
 
@@ -457,56 +543,144 @@ while True:
         2
     )
 
+    presence_live = (
+        visible_face_frames /
+        max(total_frames, 1)
+    ) * 100
+
+    integrity_live = max(
+        0,
+        100 - (multiple_face_events * 5)
+    )
+
+    cv2.putText(
+        frame,
+        f"Faces: {face_count}",
+        (900, 80),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.7,
+        (255,255,255),
+        2
+    )
+
+    cv2.putText(
+        frame,
+        f"Presence: {presence_live:.1f}%",
+        (900,120),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.7,
+        (255,255,255),
+        2
+    )
+
+    cv2.putText(
+        frame,
+        f"Integrity: {integrity_live:.1f}",
+        (900,160),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.7,
+        (0,255,255),
+        2
+    )
+
     cv2.imshow(
         "CookedOrCookin - Interview Analyzer",
         frame
     )
 
     # =====================================
-    # ESC press karne par - Session End, Graph & Report
+    # ESC press karne par - Loop End
     # =====================================
     if cv2.waitKey(1) & 0xFF == 27:
-        if len(readiness_history) > 0:
-            print("\n===== SESSION SUMMARY =====")
-            print(f"Avg Eye Contact: {sum(eye_history)/len(eye_history):.1f}%")
-            print(f"Avg Stability: {sum(stability_history)/len(stability_history):.1f}%")
-            print(f"Avg Attention: {sum(attention_history)/len(attention_history):.1f}%")
-            print(f"Final Readiness: {sum(readiness_history)/len(readiness_history):.1f}")
-            
-            # Unique filename ke liye timestamp generate kiya
-            timestamp = time.strftime("%Y%m%d_%H%M%S")
-            graph_filename = f"readiness_graph_{timestamp}.png"
-            
-            # 1. Pehle Graph Plot aur Save hoga
-            print("\nGenerating graph...")
-            scores = tracker.get_data()
-            plt.figure(figsize=(10, 5))
-            plt.plot(scores, color='purple', linewidth=2)
-            plt.title("Interview Readiness Over Time")
-            plt.xlabel("Frame")
-            plt.ylabel("Readiness Score")
-            plt.grid(True)
-            plt.savefig(graph_filename)
-            print(f"Graph saved as: {graph_filename}")
-            plt.show()  # Graph window open hogi, ise close karne par code aage badhega
-            
-            # 2. Baad mein PDF Report Generate hogi
-            print("Generating PDF report...")
-            # Note: Agar aapki ReportGenerator class internal custom method use karti hai custom name ke liye,
-            # toh aap parameters check kar sakte hain, abhi ye default pass kar raha hai.
-            report.generate(
-                sum(readiness_history)/len(readiness_history),
-                sum(eye_history)/len(eye_history),
-                sum(stability_history)/len(stability_history),
-                sum(attention_history)/len(attention_history)
-            )
-            print("PDF Report generated successfully!")
-            
-        else:
-            print("\n===== SESSION SUMMARY =====")
-            print("No face data recorded. Graph and report skipped.")
-            
         break
+
+
+# =====================================
+# Post-Session Processing (Common Finalization Block)
+# =====================================
+if len(readiness_history) > 0:
+
+    presence_score = (
+        visible_face_frames /
+        max(total_frames,1)
+    ) * 100
+
+    integrity_score = 100
+
+    integrity_score -= (
+        multiple_face_events * 5
+    )
+
+    if presence_score < 90:
+        integrity_score -= 20
+
+    integrity_score = max(
+        0,
+        integrity_score
+    )
+
+    session_status = "VALID"
+
+    if (
+        integrity_score < 70
+        or
+        multiple_face_events > 5
+    ):
+        session_status = "INVALID"
+
+    print("\n===== SESSION SUMMARY =====")
+    print(f"Avg Eye Contact: {sum(eye_history)/len(eye_history):.1f}%")
+    print(f"Avg Stability: {sum(stability_history)/len(stability_history):.1f}%")
+    print(f"Avg Attention: {sum(attention_history)/len(attention_history):.1f}%")
+    print(f"Final Readiness: {sum(readiness_history)/len(readiness_history):.1f}")
+    print(f"Presence Score: {presence_score:.1f}%")
+    print(f"Multiple Face Events: {multiple_face_events}")
+    print(f"Integrity Score: {integrity_score:.1f}")
+    print(f"Session Status: {session_status}")
+    
+    # Unique filename ke liye timestamp generate kiya
+    timestamp = time.strftime("%Y%m%d_%H%M%S")
+    graph_filename = f"readiness_graph_{timestamp}.png"
+    
+    # 1. Pehle Graph Plot aur Save hoga
+    print("\nGenerating graph...")
+    scores = tracker.get_data()
+    plt.figure(figsize=(10, 5))
+    plt.plot(scores, color='purple', linewidth=2)
+    plt.title("Interview Readiness Over Time")
+    plt.xlabel("Frame")
+    plt.ylabel("Readiness Score")
+    plt.grid(True)
+    plt.savefig(graph_filename)
+    print(f"Graph saved as: {graph_filename}")
+    plt.show(block=False)  # Non-blocking window toggle kiya
+    plt.close()            # Resource memory cleanup kiya
+    
+    # 2. Baad mein PDF Report Generate hogi
+    print("Generating PDF report...")
+    
+    avg_readiness = sum(readiness_history)/len(readiness_history)
+    avg_eye = sum(eye_history)/len(eye_history)
+    avg_stability = sum(stability_history)/len(stability_history)
+    avg_attention = sum(attention_history)/len(attention_history)
+    
+    report.generate(
+        avg_readiness,
+        avg_eye,
+        avg_stability,
+        avg_attention,
+        presence_score,
+        integrity_score,
+        multiple_face_events,
+        session_status,
+        session_auto_ended,
+        graph_filename
+    )
+    print("PDF Report generated successfully!")
+    
+else:
+    print("\n===== SESSION SUMMARY =====")
+    print("No face data recorded. Graph and report skipped.")
 
 
 # =====================================
