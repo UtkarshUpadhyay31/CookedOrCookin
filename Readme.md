@@ -32,8 +32,6 @@ Unlike traditional interview preparation tools, CookedOrCookin not only measures
 
 # 🎥 Demo
 
-<h1 align="center">🎥 Demo</h1>
-
 <p align="center">
 
   <img src="screenshots/demo.gif" width="1000">
