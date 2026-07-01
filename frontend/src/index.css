@@ -1,0 +1,209 @@
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Inter:wght@300;400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-background text-white font-sans overflow-x-hidden;
+    background-image: 
+      radial-gradient(circle at 10% 20%, rgba(123, 97, 255, 0.05) 0%, transparent 40%),
+      radial-gradient(circle at 90% 80%, rgba(0, 212, 255, 0.05) 0%, transparent 40%),
+      radial-gradient(circle at 50% 50%, rgba(6, 7, 10, 1) 0%, rgba(14, 16, 21, 1) 100%);
+    background-attachment: fixed;
+    min-height: 100vh;
+  }
+}
+
+/* Glassmorphism Styles */
+.glass-panel {
+  background: rgba(255, 255, 255, 0.03);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.glass-card {
+  background: rgba(255, 255, 255, 0.02);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.glass-card:hover {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.1);
+  transform: translateY(-4px);
+  box-shadow: 0 12px 40px -10px rgba(0, 0, 0, 0.5);
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.01);
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.25);
+}
+
+/* Glow Effects */
+.glow-blue {
+  box-shadow: 0 0 30px rgba(0, 212, 255, 0.15);
+}
+
+.glow-purple {
+  box-shadow: 0 0 30px rgba(123, 97, 255, 0.15);
+}
+
+.glow-emerald {
+  box-shadow: 0 0 30px rgba(0, 255, 163, 0.15);
+}
+
+.glow-danger {
+  box-shadow: 0 0 30px rgba(255, 77, 109, 0.15);
+}
+
+/* Scanning Animation (Loading Screen) */
+@keyframes scan {
+  0% {
+    top: 0%;
+  }
+  50% {
+    top: 100%;
+  }
+  100% {
+    top: 0%;
+  }
+}
+
+.scan-line {
+  height: 4px;
+  background: linear-gradient(90deg, transparent, #00D4FF, #7B61FF, #00D4FF, transparent);
+  box-shadow: 0 0 15px #00D4FF;
+  animation: scan 4s linear infinite;
+}
+
+/* Radar Pulse Animation */
+@keyframes pulse-ring {
+  0% {
+    transform: scale(0.95);
+    opacity: 0.8;
+  }
+  50% {
+    transform: scale(1.05);
+    opacity: 0.4;
+  }
+  100% {
+    transform: scale(0.95);
+    opacity: 0.8;
+  }
+}
+
+.live-pulse {
+  animation: pulse-ring 2s infinite ease-in-out;
+}
+
+/* Border Glow Animation */
+@keyframes border-glow-blue {
+  0%, 100% {
+    border-color: rgba(0, 212, 255, 0.2);
+    box-shadow: 0 0 15px rgba(0, 212, 255, 0.05);
+  }
+  50% {
+    border-color: rgba(0, 212, 255, 0.6);
+    box-shadow: 0 0 25px rgba(0, 212, 255, 0.2);
+  }
+}
+
+@keyframes border-glow-red {
+  0%, 100% {
+    border-color: rgba(255, 77, 109, 0.2);
+    box-shadow: 0 0 15px rgba(255, 77, 109, 0.05);
+  }
+  50% {
+    border-color: rgba(255, 77, 109, 0.7);
+    box-shadow: 0 0 25px rgba(255, 77, 109, 0.25);
+  }
+}
+
+@keyframes border-glow-yellow {
+  0%, 100% {
+    border-color: rgba(255, 200, 87, 0.2);
+    box-shadow: 0 0 15px rgba(255, 200, 87, 0.05);
+  }
+  50% {
+    border-color: rgba(255, 200, 87, 0.7);
+    box-shadow: 0 0 25px rgba(255, 200, 87, 0.25);
+  }
+}
+
+.border-glow-active {
+  animation: border-glow-blue 3s infinite ease-in-out;
+}
+
+.border-glow-invalid {
+  animation: border-glow-red 2s infinite ease-in-out;
+}
+
+.border-glow-warning {
+  animation: border-glow-yellow 2.5s infinite ease-in-out;
+}
+
+/* Circular progress override */
+.CircularProgressbar {
+  width: 100%;
+  vertical-align: middle;
+}
+.CircularProgressbar .CircularProgressbar-path {
+  stroke-linecap: round;
+  transition: stroke-dashoffset 0.5s ease 0s;
+}
+.CircularProgressbar .CircularProgressbar-trail {
+  stroke: rgba(255, 255, 255, 0.03);
+  stroke-linecap: round;
+}
+.CircularProgressbar .CircularProgressbar-text {
+  fill: #fff;
+  font-family: 'Space Grotesk', sans-serif;
+  font-weight: bold;
+}
+
+/* Background floating particles */
+.particle {
+  position: absolute;
+  pointer-events: none;
+  background: linear-gradient(135deg, #00D4FF 0%, #7B61FF 100%);
+  border-radius: 50%;
+  filter: blur(1px);
+  opacity: 0.15;
+  animation: float 20s infinite linear;
+}
+
+@keyframes float {
+  0% {
+    transform: translateY(100vh) translateX(0) scale(1);
+    opacity: 0;
+  }
+  10% {
+    opacity: 0.2;
+  }
+  90% {
+    opacity: 0.2;
+  }
+  100% {
+    transform: translateY(-10vh) translateX(100px) scale(0.5);
+    opacity: 0;
+  }
+}

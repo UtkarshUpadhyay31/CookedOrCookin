@@ -214,32 +214,24 @@ Graph Generator
 PDF Report Generator
 ```
 
----
-
 # 🖥️ Tech Stack
 
-## Computer Vision
-
-* OpenCV
-* MediaPipe Face Mesh
-* YuNet Face Detector
-
-## Data Processing
-
-* NumPy
-* Pandas
-
-## Visualization
-
-* Matplotlib
-
-## Reporting
-
-* ReportLab
-
-## Language
-
+## Computer Vision & Backend
 * Python
+* OpenCV (DNN with YuNet Face Detector)
+* MediaPipe (Face Mesh)
+* Starlette (Asynchronous ASGI Web & WebSocket Server)
+* Uvicorn (ASGI Server implementation)
+* Matplotlib & NumPy
+
+## Frontend Client
+* React (Vite bundler)
+* Tailwind CSS (v3 layout engine)
+* Framer Motion (Transitions and spring micro-interactions)
+* Recharts (Real-time scrolling behavior timelines)
+* Lucide React (High-fidelity SVGs)
+* React Circular Progressbar (Performance rating gauges)
+* React Hot Toast (Violations notifications overlay)
 
 ---
 
@@ -247,11 +239,20 @@ PDF Report Generator
 
 ```text
 CookedOrCookin/
-
 │
-├── app.py
+├── server.py                 # ASGI Web/WebSocket Server
+├── app.py                    # Legacy local OpenCV GUI loop (Fallback)
 │
-├── analytics/
+├── frontend/                 # React Application Directory
+│   ├── src/
+│   │   ├── components/       # StartScreen, LoadingScreen, Dashboard, EndingScreen
+│   │   ├── App.jsx           # State machine, WebSocket connector, Toast system
+│   │   ├── index.css         # Glassmorphism styling and custom keyframes
+│   │   └── main.jsx
+│   ├── tailwind.config.js
+│   └── package.json
+│
+├── analytics/                # Python CV Metrics Engine
 │   ├── blink.py
 │   ├── eye_contact.py
 │   ├── head_pose.py
@@ -259,72 +260,71 @@ CookedOrCookin/
 │   ├── attention.py
 │   └── session_tracker.py
 │
-├── core/
+├── core/                     # Face & Landmark Processors
 │   ├── face_detector.py
 │   └── landmark_detector.py
 │
-├── reports/
+├── reports/                  # Report Generative Modules
 │   └── report_generator.py
 │
-├── assets/
+├── assets/                   # ONNX Weights Models
 │   └── face_detection_yunet_2023mar.onnx
 │
-├── screenshots/
-│   ├── analyzer_dashboard.png
-│   ├── readiness_graph.png
-│   ├── generated_report.png
-│   └── demo.gif
-│
-├── requirements.txt
-│
-└── README.md
+├── screenshots/              # Visual Documentation
+└── requirements.txt          # Python Packages Manifest
 ```
 
 ---
 
 # ⚡ Installation
 
-## Clone Repository
-
+## 1. Clone & Set Up Python Environment
 ```bash
 git clone https://github.com/UtkarshUpadhyay31/CookedOrCookin.git
-
 cd CookedOrCookin
-```
 
-## Create Virtual Environment
-
-```bash
+# Create Virtual Environment
 python -m venv venv
-```
 
-### Windows
+# Activate Virtual Environment (Windows)
+.\venv\Scripts\activate
 
-```bash
-venv\Scripts\activate
-```
-
-### Linux / Mac
-
-```bash
-source venv/bin/activate
-```
-
----
-
-## Install Dependencies
-
-```bash
+# Install Backend Dependencies
 pip install -r requirements.txt
+```
+
+## 2. Set Up Frontend Node Packages
+```bash
+cd frontend
+npm install
 ```
 
 ---
 
 # ▶️ Run Application
 
-```bash
-python app.py
-```
+### Option A: Standard Mode (Pre-built Static Bundle)
+This hosts the compiled React client directly on the Starlette python server. Only one terminal command is needed:
+
+1. Start the server:
+   ```bash
+   # From the project root folder:
+   .\venv\Scripts\python.exe server.py
+   ```
+2. Open your browser and go to:
+   👉 **[http://localhost:8000](http://localhost:8000)**
+
+### Option B: UI Development Mode (Hot Module Replacement)
+If you want to modify React component styles or layouts and see changes reload instantly, keep `server.py` running in your first terminal, and start Vite in a second terminal:
+
+1. Start Vite development server (Terminal 2):
+   ```bash
+   cd frontend
+   npm run dev
+   ```
+2. Open your browser and go to:
+   👉 **[http://localhost:5173](http://localhost:5173)**
+
 
 Press:
 
@@ -437,15 +437,15 @@ This makes the platform suitable for:
 
 # 🔮 Future Roadmap
 
-* Streamlit Dashboard
-* Historical Performance Tracking
-* Multi-Session Analytics
-* AI Feedback Assistant
-* Interview Recording Support
-* Recruiter Dashboard
-* Cloud Deployment
-* AI-Powered Interview Insights
-* Interview Benchmark Comparison
+* [x] React Web Dashboard (Completed)
+* [x] Historical Performance Tracking (Completed)
+* [ ] Multi-Session Analytics
+* [ ] AI Feedback Assistant
+* [ ] Interview Recording Support
+* [ ] Recruiter Dashboard
+* [ ] Cloud Deployment
+* [ ] AI-Powered Interview Insights
+* [ ] Interview Benchmark Comparison
 
 ---
 
