@@ -1,5 +1,6 @@
 /** @type {import('tailwindcss').Config} */
 export default {
+  darkMode: 'class',
   content: [
     "./index.html",
     "./src/**/*.{js,ts,jsx,tsx}",
@@ -12,21 +13,24 @@ export default {
         mono: ["IBM Plex Sans", "monospace"],
       },
       colors: {
-        background: "#06070A",
-        secondary: "#0E1015",
-        accent: {
-          blue: "#00D4FF",
-          purple: "#7B61FF",
-          emerald: "#00FFA3",
-        },
+        // Theme variables mapped to CSS custom properties
+        background: "var(--bg-primary)",
+        secondary: "var(--bg-secondary)",
+        cardBg: "var(--bg-card)",
+        borderPrimary: "var(--border-primary)",
+        textMain: "var(--text-main)",
+        textMuted: "var(--text-muted)",
+        accentPrimary: "var(--accent-primary)",
+        accentGlow: "var(--accent-glow)",
+        
+        // Static warnings & states
         warning: "#FFC857",
         danger: "#FF4D6D",
-        muted: "#A7AAB8",
       },
       boxShadow: {
-        neon: "0 0 20px rgba(0, 212, 255, 0.25)",
-        purple: "0 0 20px rgba(123, 97, 255, 0.25)",
-        emerald: "0 0 20px rgba(0, 255, 163, 0.25)",
+        accent: "0 0 20px var(--accent-glow)",
+        soft: "0 10px 30px -10px rgba(0, 0, 0, 0.15)",
+        card: "0 4px 20px -2px rgba(0, 0, 0, 0.05)",
       },
     },
   },

@@ -8,7 +8,9 @@ class FaceDetector:
         self.detector = cv2.FaceDetectorYN.create(
             model_path,
             "",
-            (320, 320)
+            (320, 320),
+            score_threshold=0.5,
+            nms_threshold=0.3
         )
 
     def detect(self, frame):

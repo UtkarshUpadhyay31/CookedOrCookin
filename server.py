@@ -6,7 +6,7 @@ import base64
 import json
 import asyncio
 import threading
-import shutil  # <-- FIXED: Added missing shutil import for file copying
+import shutil
 import matplotlib
 # Use non-interactive backend for matplotlib to prevent GUI thread conflicts
 matplotlib.use('Agg')
@@ -46,6 +46,10 @@ LEFT_EYE = [33, 160, 158, 133, 153, 144]
 RIGHT_EYE = [362, 385, 387, 263, 373, 380]
 NOSE_TIP = 1
 
+# Multi-tab camera locking safeguards
+is_camera_in_use = False
+camera_use_lock = threading.Lock()
+
 # Ensure reports directory exists
 os.makedirs("reports", exist_ok=True)
 
@@ -82,11 +86,24 @@ class InterviewSession:
         self.multiple_face_active = False
         self.session_auto_ended = False
         self.start_time = None
+        self.finalized = False
         
     def start(self):
+        global is_camera_in_use
+        with camera_use_lock:
+            if is_camera_in_use:
+                # Camera is occupied by another session/tab
+                self._send_to_frontend({
+                    "type": "error",
+                    "message": "Webcam is already in use by another tab. Please close other CookedOrCookin tabs and try again."
+                })
+                return False
+            is_camera_in_use = True
+            
         self.start_time = time.time()
         self.thread = threading.Thread(target=self._run_loop_wrapper, daemon=True)
         self.thread.start()
+        return True
         
     def stop(self):
         self.stop_event.set()
@@ -112,17 +129,65 @@ class InterviewSession:
             })
 
     def _run_loop(self):
-        # Open Camera
+        # 1. Attempt to open webcam with DirectShow (Index 0)
         self.cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
-        self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
-        self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
         
+        # Fallback to index 0 default backend
+        if not self.cap.isOpened():
+            print("[CAMERA] Failed to open index 0 with CAP_DSHOW, trying default backend...")
+            if self.cap: self.cap.release()
+            self.cap = cv2.VideoCapture(0)
+            
+        # Fallback to index 1 with DirectShow (USB camera/Secondary device)
+        if not self.cap.isOpened():
+            print("[CAMERA] Failed to open index 0, trying index 1 with CAP_DSHOW...")
+            if self.cap: self.cap.release()
+            self.cap = cv2.VideoCapture(1, cv2.CAP_DSHOW)
+            
+        # Fallback to index 1 default backend
+        if not self.cap.isOpened():
+            print("[CAMERA] Failed to open index 1 with CAP_DSHOW, trying default backend...")
+            if self.cap: self.cap.release()
+            self.cap = cv2.VideoCapture(1)
+            
+        # If all indexes fail, notify user and abort
+        if not self.cap.isOpened():
+            self._send_to_frontend({
+                "type": "error",
+                "message": "Webcam not found or occupied. Make sure no other apps (like Zoom, Teams, or legacy app.py) are using it."
+            })
+            return
+            
+        try:
+            self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
+            self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+        except Exception as e:
+            print(f"[CAMERA] Warning: Failed to set camera resolution: {e}")
+        
+        # 2. Camera warm-up loop
+        warmed_up = False
+        for i in range(10):
+            ret, frame = self.cap.read()
+            if ret:
+                warmed_up = True
+                break
+            print(f"[CAMERA] Warming up sensor, attempt {i+1}...")
+            time.sleep(0.1)
+            
+        if not warmed_up:
+            self._send_to_frontend({
+                "type": "error",
+                "message": "Webcam was opened, but failed to return video frames (sensor warm-up timeout)."
+            })
+            if self.cap:
+                self.cap.release()
+            return
+            
         prev_time = time.time()
         
         while not self.stop_event.is_set():
             ret, frame = self.cap.read()
             if not ret:
-                # Send error warning if camera lost
                 self._send_to_frontend({
                     "type": "warning",
                     "message": "Camera Lost"
@@ -133,11 +198,21 @@ class InterviewSession:
             frame = cv2.flip(frame, 1)
             h, w, _ = frame.shape
             
-            # Face Detection
+            # YuNet face detector sweep
             faces = face_detector.detect(frame)
             face_count = 0
             if faces is not None:
                 face_count = len(faces)
+                
+            # MediaPipe FaceMesh processing run early
+            results = landmark_detector.detect(frame)
+            mp_face_count = len(results.multi_face_landmarks) if results.multi_face_landmarks else 0
+            
+            # Align face counts / Resolve False Negatives:
+            # If MediaPipe detects exactly 1 face but YuNet returns 0, trust MediaPipe and set count to 1.
+            # If YuNet detected multiple faces, preserve that count to ensure security flags are raised.
+            if mp_face_count == 1 and face_count == 0:
+                face_count = 1
                 
             self.total_frames += 1
             if face_count == 1:
@@ -196,115 +271,113 @@ class InterviewSession:
             else:
                 self.face_missing_start = None
                 
-            # Process face mesh if 1 face
+            # Presence & Integrity live calculation (Calculated early for readiness caps)
+            presence_live = (self.visible_face_frames / max(self.total_frames, 1)) * 100
+            integrity_live = max(0, 100 - (self.multiple_face_events * 5))
+            if presence_live < 90:
+                integrity_live = max(0, integrity_live - 20)
+                
+            status_indicators["session_valid"] = (integrity_live >= 70 and self.multiple_face_events <= 5)
+            
+            # Default values if no landmarks or face_count != 1
+            blink_count = blink_detector.blink_count
             ear = 0.0
-            blink_count = 0
             pitch, yaw, roll = 0.0, 0.0, 0.0
             direction = "CENTER"
-            eye_score = 0.0
+            eye_score = 0.0 if face_count != 1 else 100.0
             looking = True
-            attention_score = 0.0
-            stability_score = 0.0
-            readiness_score = 0.0
-            verdict = "NEEDS PRACTICE"
+            stability_score = 0.0 if face_count != 1 else 100.0
+            attention_score = 0.0 if face_count != 1 else 100.0
+            readiness_score = 0.0 if face_count != 1 else 100.0
+            verdict = "COOKED" if face_count != 1 else "GOOD"
             
-            if face_count == 1:
-                results = landmark_detector.detect(frame)
-                if results.multi_face_landmarks:
-                    for face_landmarks in results.multi_face_landmarks:
-                        # Draw bounding box
-                        if faces is not None and len(faces) > 0:
-                            x_box, y_box, w_box, h_box = faces[0][:4].astype(int)
-                            cv2.rectangle(frame, (x_box, y_box), (x_box + w_box, y_box + h_box), (0, 255, 0), 2)
-                            
-                        left_eye = []
-                        right_eye = []
+            if results.multi_face_landmarks and face_count == 1:
+                for face_landmarks in results.multi_face_landmarks:
+                    left_eye = []
+                    right_eye = []
+                    
+                    for idx in LEFT_EYE:
+                        lm = face_landmarks.landmark[idx]
+                        left_eye.append((int(lm.x * w), int(lm.y * h)))
                         
-                        for idx in LEFT_EYE:
-                            lm = face_landmarks.landmark[idx]
-                            left_eye.append((int(lm.x * w), int(lm.y * h)))
-                            
-                        for idx in RIGHT_EYE:
-                            lm = face_landmarks.landmark[idx]
-                            right_eye.append((int(lm.x * w), int(lm.y * h)))
-                            
-                        # Blink Detection
-                        ear, blink_count = blink_detector.update(left_eye, right_eye)
+                    for idx in RIGHT_EYE:
+                        lm = face_landmarks.landmark[idx]
+                        right_eye.append((int(lm.x * w), int(lm.y * h)))
                         
-                        # Head Pose
-                        pitch, yaw, roll = head_pose.estimate(face_landmarks, w, h)
+                    # Blink Detection
+                    ear, blink_count = blink_detector.update(left_eye, right_eye)
+                    if blink_detector.eye_closed:
+                        status_indicators["blinking"] = True
                         
-                        # Direction
-                        if yaw < -10:
-                            direction = "LEFT"
-                        elif yaw > 10:
-                            direction = "RIGHT"
-                        elif pitch > 10:
-                            direction = "DOWN"
-                        elif pitch < -10:
-                            direction = "UP"
-                            
-                        # Eye Contact
-                        eye_score, looking = eye_contact.update(yaw, pitch)
+                    # Head Pose
+                    pitch, yaw, roll = head_pose.estimate(face_landmarks, w, h)
+                    
+                    # Direction Logic
+                    direction = "CENTER"
+                    if yaw < -10:
+                        direction = "LEFT"
+                    elif yaw > 10:
+                        direction = "RIGHT"
+                    elif pitch > 10:
+                        direction = "DOWN"
+                    elif pitch < -10:
+                        direction = "UP"
+                    
+                    # Eye Contact
+                    eye_score, looking = eye_contact.update(yaw, pitch)
+                    
+                    if not looking:
+                        warnings.append("Looking Away")
+                        status_indicators["looking_away"] = True
+                    else:
+                        status_indicators["focused"] = True
                         
-                        # Attention
-                        attention_score = attention_analyzer.update(direction)
+                    # Stability & Attention
+                    nose_lm = face_landmarks.landmark[NOSE_TIP]
+                    nose_point = (int(nose_lm.x * w), int(nose_lm.y * h))
+                    
+                    stability_score = stability_analyzer.update(nose_point)
+                    attention_score = attention_analyzer.update(direction)
+                    
+                    # Readiness Score capped dynamically by current Integrity
+                    raw_readiness = (eye_score + stability_score + attention_score) / 3.0
+                    readiness_score = min(raw_readiness, integrity_live)
+                    
+                    # Update histories
+                    self.eye_history.append(eye_score)
+                    self.stability_history.append(stability_score)
+                    self.attention_history.append(attention_score)
+                    self.readiness_history.append(readiness_score)
+                    self.tracker.update(readiness_score)
+                    
+                    # Visual feedback bounding box
+                    faces_array = faces[0][:4].astype(int) if faces is not None and len(faces) > 0 else [0, 0, 0, 0]
+                    if sum(faces_array) > 0:
+                        fx, fy, fw, fh = faces_array
+                        cv2.rectangle(frame, (fx, fy), (fx + fw, fy + fh), (0, 255, 0), 2)
+                    
+                    # Draw eye landmarks
+                    for pt in left_eye + right_eye:
+                        cv2.circle(frame, pt, 1, (255, 255, 255), -1)
                         
-                        status_str = "LOOKING" if looking else "AWAY"
-                        if not looking:
-                            warnings.append("Maintain Eye Contact")
-                            status_indicators["looking_away"] = True
-                        else:
-                            status_indicators["focused"] = True
-                            
-                        # Stability
-                        nose_lm = face_landmarks.landmark[NOSE_TIP]
-                        nose_point = (int(nose_lm.x * w), int(nose_lm.y * h))
-                        stability_score = stability_analyzer.update(nose_point)
+                    # Readiness score on screen
+                    cv2.putText(frame, f"Readiness: {int(readiness_score)}%", (20, 480), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+                    
+                    # Verdict text overlays
+                    if readiness_score >= 85:
+                        verdict = "COOKIN"
+                        v_color = (0, 255, 163) # Emerald
+                    elif readiness_score >= 70:
+                        verdict = "GOOD"
+                        v_color = (255, 212, 0) # Blue-Cyan
+                    elif readiness_score >= 50:
+                        verdict = "NEEDS PRACTICE"
+                        v_color = (87, 200, 255) # Yellow-Orange
+                    else:
+                        verdict = "COOKED"
+                        v_color = (109, 77, 255) # Red-Rose
                         
-                        if stability_score < 70:
-                            warnings.append("Please Sit Still")
-                            
-                        # Readiness
-                        readiness_score = (attention_score + eye_score + stability_score) / 3.0
-                        self.tracker.update(readiness_score)
-                        
-                        self.eye_history.append(eye_score)
-                        self.stability_history.append(stability_score)
-                        self.attention_history.append(attention_score)
-                        self.readiness_history.append(readiness_score)
-                        
-                        # Verdict
-                        if readiness_score >= 85:
-                            verdict = "COOKIN"
-                            v_color = (0, 255, 0)
-                        elif readiness_score >= 70:
-                            verdict = "GOOD"
-                            v_color = (0, 255, 255)
-                        elif readiness_score >= 50:
-                            verdict = "NEEDS PRACTICE"
-                            v_color = (0, 165, 255)
-                        else:
-                            verdict = "COOKED"
-                            v_color = (0, 0, 255)
-                            
-                        # Draw mesh indicators
-                        for pt in left_eye + right_eye:
-                            cv2.circle(frame, pt, 2, (0, 255, 0), -1)
-                            
-                        # Write CV annotations on frame
-                        cv2.putText(frame, f"EAR: {ear:.2f}", (20, 80), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
-                        cv2.putText(frame, f"Blinks: {blink_count}", (20, 120), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-                        cv2.putText(frame, f"Yaw: {yaw:.1f}", (20, 160), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
-                        cv2.putText(frame, f"Pitch: {pitch:.1f}", (20, 200), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
-                        cv2.putText(frame, f"Roll: {roll:.1f}", (20, 240), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
-                        cv2.putText(frame, f"Looking: {direction}", (20, 280), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2)
-                        cv2.putText(frame, f"Eye Contact: {eye_score:.1f}%", (20, 320), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-                        cv2.putText(frame, status_str, (20, 360), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 0), 2)
-                        cv2.putText(frame, f"Stability: {stability_score:.1f}%", (20, 400), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
-                        cv2.putText(frame, f"Attention: {attention_score:.1f}%", (20, 440), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
-                        cv2.putText(frame, f"Readiness: {readiness_score:.1f}", (20, 620), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2)
-                        cv2.putText(frame, verdict, (20, 520), cv2.FONT_HERSHEY_SIMPLEX, 1.2, v_color, 3)
+                    cv2.putText(frame, verdict, (20, 520), cv2.FONT_HERSHEY_SIMPLEX, 1.2, v_color, 3)
 
             # FPS
             current_time = time.time()
@@ -319,26 +392,21 @@ class InterviewSession:
             time_str = f"{minutes:02}:{seconds:02}"
             cv2.putText(frame, f"Session: {time_str}", (900, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 0), 2)
             
-            # Presence & Integrity live
-            presence_live = (self.visible_face_frames / max(self.total_frames, 1)) * 100
-            integrity_live = max(0, 100 - (self.multiple_face_events * 5))
-            
-            cv2.putText(frame, f"Faces: {face_count}", (900, 80), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
-            cv2.putText(frame, f"Presence: {presence_live:.1f}%", (900, 120), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
-            cv2.putText(frame, f"Integrity: {integrity_live:.1f}", (900, 160), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
-            
-            # Determine validity live
-            status_indicators["session_valid"] = (integrity_live >= 70 and self.multiple_face_events <= 5)
-            
-            # Encode frame to Base64
+            # Debug console output logging
+            no_face_timer = round(time.time() - self.face_missing_start, 1) if self.face_missing_start else 0.0
+            print(f"[DEBUG] FaceCount: {face_count} | Presence: {round(presence_live, 1)}% | "
+                  f"Integrity: {round(integrity_live, 1)} | Readiness: {round(readiness_score, 1)}% | "
+                  f"Status: {'VALID' if status_indicators['session_valid'] else 'INVALID'} | "
+                  f"Visible: {face_count == 1} | Multiple: {status_indicators['multiple_faces']} | "
+                  f"NoFaceTimer: {no_face_timer}s")
+
+            # Send frame to frontend
             _, buffer = cv2.imencode('.jpg', frame)
-            jpg_as_text = base64.b64encode(buffer).decode('utf-8')
-            frame_url = f"data:image/jpeg;base64,{jpg_as_text}"
+            frame_base64 = base64.b64encode(buffer).decode('utf-8')
             
-            # Send combined payload
             payload = {
                 "type": "live_data",
-                "frame": frame_url,
+                "frame": f"data:image/jpeg;base64,{frame_base64}",
                 "metrics": {
                     "fps": int(fps),
                     "session_time": time_str,
@@ -368,11 +436,21 @@ class InterviewSession:
         # Cleanup webcam
         if self.cap:
             self.cap.release()
+            
+        self._finalize_session()
 
     def _send_to_frontend(self, data):
         self.loop.call_soon_threadsafe(self.ws_send_queue.put_nowait, json.dumps(data))
 
     def _finalize_session(self):
+        global is_camera_in_use
+        if self.finalized:
+            return
+        self.finalized = True
+        
+        with camera_use_lock:
+            is_camera_in_use = False
+        
         if len(self.readiness_history) == 0:
             self._send_to_frontend({
                 "type": "error",
@@ -520,14 +598,17 @@ async def websocket_endpoint(websocket):
                 if active_session:
                     active_session.stop()
                 active_session = InterviewSession(ws_send_queue, loop)
-                active_session.start()
-                await websocket.send_text(json.dumps({"type": "session_state", "state": "active"}))
+                started = active_session.start()
+                if started:
+                    await ws_send_queue.put(json.dumps({"type": "session_state", "state": "active"}))
+                else:
+                    active_session = None
                 
             elif cmd_type == "stop":
                 if active_session:
                     active_session.stop()
                     active_session = None
-                await websocket.send_text(json.dumps({"type": "session_state", "state": "ended"}))
+                await ws_send_queue.put(json.dumps({"type": "session_state", "state": "ended"}))
                 
     except Exception as e:
         print("WS Exception:", e)
